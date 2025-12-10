@@ -1,0 +1,168 @@
+[
+  {
+    "model": "telegram_channels.language",
+    "pk": 1,
+    "fields": {
+      "code": "en",
+      "name": "English",
+      "native_name": "English",
+      "is_default": true,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 2,
+    "fields": {
+      "code": "ru",
+      "name": "Russian",
+      "native_name": "Русский",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 3,
+    "fields": {
+      "code": "de",
+      "name": "German",
+      "native_name": "Deutsch",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 4,
+    "fields": {
+      "code": "es",
+      "name": "Spanish",
+      "native_name": "Español",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 5,
+    "fields": {
+      "code": "fr",
+      "name": "French",
+      "native_name": "Français",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 6,
+    "fields": {
+      "code": "pt",
+      "name": "Portuguese",
+      "native_name": "Português",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 7,
+    "fields": {
+      "code": "it",
+      "name": "Italian",
+      "native_name": "Italiano",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 8,
+    "fields": {
+      "code": "zh",
+      "name": "Chinese",
+      "native_name": "中文",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 9,
+    "fields": {
+      "code": "ja",
+      "name": "Japanese",
+      "native_name": "日本語",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 10,
+    "fields": {
+      "code": "ko",
+      "name": "Korean",
+      "native_name": "한국어",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 11,
+    "fields": {
+      "code": "ar",
+      "name": "Arabic",
+      "native_name": "العربية",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 12,
+    "fields": {
+      "code": "hi",
+      "name": "Hindi",
+      "native_name": "हिन्दी",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 13,
+    "fields": {
+      "code": "tr",
+      "name": "Turkish",
+      "native_name": "Türkçe",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 14,
+    "fields": {
+      "code": "uk",
+      "name": "Ukrainian",
+      "native_name": "Українська",
+      "is_default": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "telegram_channels.language",
+    "pk": 15,
+    "fields": {
+      "code": "vi",
+      "name": "Vietnamese",
+      "native_name": "Tiếng Việt",
+      "is_default": false,
+      "is_active": true
+    }
+  }
+]
+

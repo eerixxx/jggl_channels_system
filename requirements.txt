@@ -1,0 +1,48 @@
+# Django and extensions
+Django>=5.0,<6.0
+djangorestframework>=3.14
+django-celery-beat>=2.5
+django-celery-results>=2.5
+django-cors-headers>=4.3
+django-filter>=23.5
+django-prometheus>=2.3
+
+# Database
+psycopg[binary]>=3.1
+
+# Async and HTTP
+celery>=5.3
+redis>=5.0
+httpx>=0.25
+
+# Validation
+pydantic>=2.5
+pydantic-settings>=2.1
+
+# Web server
+gunicorn>=21.0
+whitenoise>=6.6
+
+# Media handling
+Pillow>=10.0
+
+# Text processing
+markdown>=3.5
+bleach>=6.1
+
+# Testing
+pytest>=7.4
+pytest-django>=4.7
+pytest-asyncio>=0.23
+factory-boy>=3.3
+pytest-cov>=4.1
+
+# Code quality
+ruff>=0.1
+black>=23.12
+
+# Type hints
+mypy>=1.7
+django-stubs>=4.2
+djangorestframework-stubs>=3.14
+
