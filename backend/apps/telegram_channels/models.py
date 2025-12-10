@@ -139,7 +139,9 @@ class Channel(TimestampedModel):
         Language,
         on_delete=models.PROTECT,
         related_name="channels",
-        help_text="Language of this channel",
+        null=True,
+        blank=True,
+        help_text="Language of this channel (optional)",
     )
     description = models.TextField(
         blank=True,
@@ -217,9 +219,10 @@ class Channel(TimestampedModel):
         ]
 
     def __str__(self):
+        lang_code = self.language.code if self.language else "no lang"
         if self.username:
-            return f"@{self.username} ({self.language.code})"
-        return f"{self.title} ({self.language.code})"
+            return f"@{self.username} ({lang_code})"
+        return f"{self.title} ({lang_code})"
 
     @property
     def telegram_link(self):

@@ -1,4 +1,8 @@
-"""LLM Translation service client."""
+"""LLM Translation Middleware client.
+
+Based on LLM_API.md documentation.
+API Base: http://178.217.98.201:8002
+"""
 
 import asyncio
 import logging
@@ -11,6 +15,8 @@ from django.conf import settings
 from .schemas import (
     BatchTranslationRequest,
     BatchTranslationResponse,
+    LanguagesResponse,
+    TranslationErrorResponse,
     TranslationRequest,
     TranslationResponse,
 )
@@ -21,24 +27,34 @@ logger = logging.getLogger(__name__)
 class TranslationError(Exception):
     """Custom exception for translation errors."""
 
-    pass
+    def __init__(self, message: str, code: str = "UNKNOWN", details: dict = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.details = details or {}
 
 
 class TranslationClient:
     """
-    Client for communicating with the LLM translation middleware service.
+    Client for communicating with the LLM Translation Middleware service.
+    
+    Handles:
+    - Single text translation
+    - Batch translation to multiple languages
+    - Retry logic with exponential backoff
+    - Error handling and logging
     """
 
     def __init__(
         self,
         base_url: Optional[str] = None,
         token: Optional[str] = None,
-        timeout: float = 60.0,
+        timeout: float = 120.0,  # LLM can be slow
         max_retries: int = 3,
         retry_delay: float = 1.0,
     ):
-        self.base_url = base_url or settings.TRANSLATION_SERVICE_URL
-        self.token = token or settings.TRANSLATION_SERVICE_TOKEN
+        self.base_url = (base_url or getattr(settings, 'TRANSLATION_SERVICE_URL', '')).rstrip('/')
+        self.token = token or getattr(settings, 'TRANSLATION_SERVICE_TOKEN', '')
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
@@ -64,14 +80,71 @@ class TranslationClient:
             timeout=httpx.Timeout(self.timeout),
         )
 
+    def _handle_error_response(self, response: httpx.Response) -> None:
+        """Parse error response and raise TranslationError."""
+        try:
+            data = response.json()
+            error = TranslationErrorResponse(**data)
+            raise TranslationError(
+                message=error.error,
+                code=error.code,
+                details=error.details,
+            )
+        except TranslationError:
+            raise
+        except Exception:
+            raise TranslationError(
+                message=f"HTTP {response.status_code}: {response.text[:200]}",
+                code=f"HTTP_{response.status_code}",
+            )
+
     def _should_retry(self, exception: Exception) -> bool:
         """Determine if we should retry based on the exception."""
+        if isinstance(exception, TranslationError):
+            # Retry on rate limits and service unavailable
+            return exception.code in (
+                "LLM_RATE_LIMIT",
+                "LLM_UNAVAILABLE",
+                "LLM_TIMEOUT",
+            )
         if isinstance(exception, httpx.HTTPStatusError):
-            # Retry on server errors and rate limits
             return exception.response.status_code in (429, 500, 502, 503, 504)
         if isinstance(exception, (httpx.ConnectError, httpx.ReadTimeout)):
             return True
         return False
+
+    # ============== Health Check ==============
+
+    def health_check(self) -> bool:
+        """Check if the translation service is healthy."""
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                response = client.get(f"{self.base_url}/health")
+                if response.status_code == 200:
+                    data = response.json()
+                    return data.get("status") == "healthy"
+        except Exception as e:
+            logger.warning(f"Translation service health check failed: {e}")
+        return False
+
+    # ============== Get Languages ==============
+
+    def get_languages_sync(self) -> list[dict]:
+        """Get list of supported languages (synchronous)."""
+        try:
+            with self._get_client() as client:
+                response = client.get("/api/v1/languages")
+                if response.status_code >= 400:
+                    self._handle_error_response(response)
+                
+                data = response.json()
+                result = LanguagesResponse(**data)
+                return [{"code": lang.code, "name": lang.name} for lang in result.languages]
+        except TranslationError:
+            raise
+        except Exception as e:
+            logger.exception(f"Error getting languages: {e}")
+            raise TranslationError(str(e), code="INTERNAL_ERROR")
 
     # ============== Synchronous Methods ==============
 
@@ -81,14 +154,25 @@ class TranslationClient:
         source_language: str,
         target_language: str,
         context: Optional[str] = None,
-        tone: Optional[str] = None,
+        tone: str = "professional",
         preserve_formatting: bool = True,
-    ) -> Optional[str]:
+    ) -> str:
         """
         Translate text to a target language (synchronous).
 
-        Returns the translated text if successful, None otherwise.
-        Implements retry logic with exponential backoff.
+        Args:
+            text: Markdown text to translate (max 12000 chars)
+            source_language: Source language code (e.g., 'en', 'ru')
+            target_language: Target language code
+            context: Optional context for better translation
+            tone: Translation tone ('formal', 'casual', 'professional')
+            preserve_formatting: Whether to preserve markdown
+
+        Returns:
+            Translated text with preserved formatting.
+
+        Raises:
+            TranslationError: If translation fails after retries.
         """
         request = TranslationRequest(
             text=text,
@@ -108,34 +192,53 @@ class TranslationClient:
                         "/api/v1/translate",
                         json=request.model_dump(exclude_none=True),
                     )
-                    response.raise_for_status()
+
+                    if response.status_code >= 400:
+                        self._handle_error_response(response)
 
                     data = response.json()
                     result = TranslationResponse(**data)
 
-                    if result.success:
-                        if result.warning:
-                            logger.warning(
-                                f"Translation warning ({target_language}): {result.warning}"
-                            )
-                        return result.translated_text
-                    else:
-                        logger.error(f"Translation failed: {result.error}")
-                        raise TranslationError(result.error)
+                    # Log warnings if any
+                    for warning in result.warnings:
+                        logger.warning(
+                            f"Translation warning ({source_language}->{target_language}): {warning}"
+                        )
 
-            except Exception as e:
+                    logger.info(
+                        f"Translated {len(text)} chars from {source_language} to {target_language} "
+                        f"(tokens: {result.tokens_used})"
+                    )
+
+                    return result.translation
+
+            except TranslationError as e:
                 last_exception = e
                 if self._should_retry(e) and attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (2**attempt)  # Exponential backoff
+                    delay = self.retry_delay * (2 ** attempt)
                     logger.warning(
-                        f"Translation attempt {attempt + 1} failed, "
-                        f"retrying in {delay}s: {e}"
+                        f"Translation attempt {attempt + 1} failed ({e.code}), "
+                        f"retrying in {delay}s"
                     )
                     time.sleep(delay)
                 else:
                     break
 
-        logger.exception(f"Translation failed after {self.max_retries} attempts")
+            except Exception as e:
+                last_exception = TranslationError(str(e), code="INTERNAL_ERROR")
+                if self._should_retry(e) and attempt < self.max_retries - 1:
+                    delay = self.retry_delay * (2 ** attempt)
+                    logger.warning(
+                        f"Translation attempt {attempt + 1} failed, retrying in {delay}s: {e}"
+                    )
+                    time.sleep(delay)
+                else:
+                    break
+
+        logger.error(
+            f"Translation failed after {self.max_retries} attempts: "
+            f"{source_language}->{target_language}"
+        )
         raise last_exception or TranslationError("Translation failed")
 
     def batch_translate_sync(
@@ -144,15 +247,29 @@ class TranslationClient:
         source_language: str,
         target_languages: list[str],
         context: Optional[str] = None,
-        tone: Optional[str] = None,
+        tone: str = "professional",
         preserve_formatting: bool = True,
     ) -> dict[str, str]:
         """
         Translate text to multiple languages (synchronous).
 
-        Returns a dict mapping language code to translated text.
-        Raises TranslationError if all translations fail.
+        Args:
+            text: Markdown text to translate
+            source_language: Source language code
+            target_languages: List of target language codes (max 20)
+            context: Optional context for better translation
+            tone: Translation tone
+            preserve_formatting: Whether to preserve markdown
+
+        Returns:
+            Dict mapping language code to translated text.
+
+        Raises:
+            TranslationError: If all translations fail.
         """
+        if not target_languages:
+            return {}
+
         request = BatchTranslationRequest(
             text=text,
             source_language=source_language,
@@ -168,32 +285,35 @@ class TranslationClient:
                     "/api/v1/translate/batch",
                     json=request.model_dump(exclude_none=True),
                 )
-                response.raise_for_status()
+
+                if response.status_code >= 400:
+                    self._handle_error_response(response)
 
                 data = response.json()
                 result = BatchTranslationResponse(**data)
 
-                if result.success or result.translations:
-                    # Log any warnings
-                    for lang, warning in result.warnings.items():
-                        logger.warning(f"Translation warning ({lang}): {warning}")
+                translations = {}
+                for item in result.results:
+                    translations[item.target_language] = item.translation
+                    
+                    # Log warnings
+                    for warning in item.warnings:
+                        logger.warning(
+                            f"Translation warning ({item.target_language}): {warning}"
+                        )
 
-                    # Log any errors
-                    for lang, error in result.errors.items():
-                        logger.error(f"Translation error ({lang}): {error}")
+                logger.info(
+                    f"Batch translated {len(text)} chars from {source_language} to "
+                    f"{len(translations)} languages (tokens: {result.total_tokens_used})"
+                )
 
-                    return result.translations
-                else:
-                    raise TranslationError(
-                        f"Batch translation failed: {result.errors}"
-                    )
+                return translations
 
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error in batch translation: {e.response.status_code}")
-            raise TranslationError(f"HTTP error: {e.response.status_code}")
+        except TranslationError:
+            raise
         except Exception as e:
             logger.exception(f"Batch translation error: {e}")
-            raise TranslationError(str(e))
+            raise TranslationError(str(e), code="INTERNAL_ERROR")
 
     # ============== Asynchronous Methods ==============
 
@@ -203,13 +323,13 @@ class TranslationClient:
         source_language: str,
         target_language: str,
         context: Optional[str] = None,
-        tone: Optional[str] = None,
+        tone: str = "professional",
         preserve_formatting: bool = True,
-    ) -> Optional[str]:
+    ) -> str:
         """
         Translate text to a target language (asynchronous).
 
-        Returns the translated text if successful, None otherwise.
+        Returns the translated text.
         """
         request = TranslationRequest(
             text=text,
@@ -229,34 +349,40 @@ class TranslationClient:
                         "/api/v1/translate",
                         json=request.model_dump(exclude_none=True),
                     )
-                    response.raise_for_status()
+
+                    if response.status_code >= 400:
+                        self._handle_error_response(response)
 
                     data = response.json()
                     result = TranslationResponse(**data)
 
-                    if result.success:
-                        if result.warning:
-                            logger.warning(
-                                f"Translation warning ({target_language}): {result.warning}"
-                            )
-                        return result.translated_text
-                    else:
-                        logger.error(f"Translation failed: {result.error}")
-                        raise TranslationError(result.error)
+                    for warning in result.warnings:
+                        logger.warning(
+                            f"Translation warning ({source_language}->{target_language}): {warning}"
+                        )
 
-            except Exception as e:
+                    return result.translation
+
+            except TranslationError as e:
                 last_exception = e
                 if self._should_retry(e) and attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (2**attempt)
+                    delay = self.retry_delay * (2 ** attempt)
                     logger.warning(
-                        f"Translation attempt {attempt + 1} failed, "
-                        f"retrying in {delay}s: {e}"
+                        f"Translation attempt {attempt + 1} failed ({e.code}), "
+                        f"retrying in {delay}s"
                     )
                     await asyncio.sleep(delay)
                 else:
                     break
 
-        logger.exception(f"Translation failed after {self.max_retries} attempts")
+            except Exception as e:
+                last_exception = TranslationError(str(e), code="INTERNAL_ERROR")
+                if self._should_retry(e) and attempt < self.max_retries - 1:
+                    delay = self.retry_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
+                else:
+                    break
+
         raise last_exception or TranslationError("Translation failed")
 
     async def batch_translate(
@@ -265,7 +391,7 @@ class TranslationClient:
         source_language: str,
         target_languages: list[str],
         context: Optional[str] = None,
-        tone: Optional[str] = None,
+        tone: str = "professional",
         preserve_formatting: bool = True,
     ) -> dict[str, str]:
         """
@@ -273,6 +399,9 @@ class TranslationClient:
 
         Returns a dict mapping language code to translated text.
         """
+        if not target_languages:
+            return {}
+
         request = BatchTranslationRequest(
             text=text,
             source_language=source_language,
@@ -288,68 +417,21 @@ class TranslationClient:
                     "/api/v1/translate/batch",
                     json=request.model_dump(exclude_none=True),
                 )
-                response.raise_for_status()
+
+                if response.status_code >= 400:
+                    self._handle_error_response(response)
 
                 data = response.json()
                 result = BatchTranslationResponse(**data)
 
-                if result.success or result.translations:
-                    for lang, warning in result.warnings.items():
-                        logger.warning(f"Translation warning ({lang}): {warning}")
+                translations = {}
+                for item in result.results:
+                    translations[item.target_language] = item.translation
 
-                    for lang, error in result.errors.items():
-                        logger.error(f"Translation error ({lang}): {error}")
+                return translations
 
-                    return result.translations
-                else:
-                    raise TranslationError(
-                        f"Batch translation failed: {result.errors}"
-                    )
-
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error in batch translation: {e.response.status_code}")
-            raise TranslationError(f"HTTP error: {e.response.status_code}")
+        except TranslationError:
+            raise
         except Exception as e:
             logger.exception(f"Batch translation error: {e}")
-            raise TranslationError(str(e))
-
-    async def translate_parallel(
-        self,
-        text: str,
-        source_language: str,
-        target_languages: list[str],
-        context: Optional[str] = None,
-        tone: Optional[str] = None,
-        preserve_formatting: bool = True,
-    ) -> dict[str, str]:
-        """
-        Translate text to multiple languages in parallel (asynchronous).
-
-        This is an alternative to batch_translate that makes parallel requests
-        instead of a single batch request.
-
-        Returns a dict mapping language code to translated text.
-        """
-        tasks = [
-            self.translate(
-                text=text,
-                source_language=source_language,
-                target_language=lang,
-                context=context,
-                tone=tone,
-                preserve_formatting=preserve_formatting,
-            )
-            for lang in target_languages
-        ]
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        translations = {}
-        for lang, result in zip(target_languages, results):
-            if isinstance(result, Exception):
-                logger.error(f"Failed to translate to {lang}: {result}")
-            elif result:
-                translations[lang] = result
-
-        return translations
-
+            raise TranslationError(str(e), code="INTERNAL_ERROR")

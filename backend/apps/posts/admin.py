@@ -72,7 +72,14 @@ class ChannelPostInline(admin.TabularInline):
 
 @admin.register(MultiChannelPost)
 class MultiChannelPostAdmin(admin.ModelAdmin):
-    """Admin for MultiChannelPost model."""
+    """Admin for MultiChannelPost model.
+    
+    Workflow:
+    1. Select a Channel Group (which has channels assigned)
+    2. Write the post text (in primary language)
+    3. Save -> ChannelPost records are auto-created for each channel in group
+    4. Use actions to translate and publish
+    """
 
     list_display = [
         "internal_title",
@@ -86,20 +93,27 @@ class MultiChannelPostAdmin(admin.ModelAdmin):
     list_filter = ["status", "auto_translate_enabled", "group", "created_at"]
     search_fields = ["internal_title", "primary_text_markdown"]
     ordering = ["-created_at"]
-    raw_id_fields = ["group", "primary_channel"]
+    # Use autocomplete for better UX (requires search_fields in related admin)
+    autocomplete_fields = ["group"]
     inlines = [ChannelPostInline]
     date_hierarchy = "created_at"
 
     fieldsets = (
-        (None, {"fields": ("group", "internal_title")}),
         (
-            "Content",
+            None,
+            {
+                "fields": ("group", "internal_title"),
+                "description": "Select a Channel Group. The primary channel will be auto-selected from the group.",
+            },
+        ),
+        (
+            "Content (Primary Language)",
             {
                 "fields": (
-                    "primary_channel",
                     "primary_text_markdown",
                     "primary_photo",
-                )
+                ),
+                "description": "Write your post in the primary language. It will be auto-translated to other languages.",
             },
         ),
         (
@@ -129,6 +143,21 @@ class MultiChannelPostAdmin(admin.ModelAdmin):
         ),
     )
     readonly_fields = ["status", "published_at", "created_at", "updated_at"]
+    
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Show only active groups."""
+        if db_field.name == "group":
+            from apps.telegram_channels.models import ChannelGroup
+            kwargs["queryset"] = ChannelGroup.objects.filter(is_active=True)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    
+    def save_model(self, request, obj, form, change):
+        """Auto-set primary_channel from group if not set."""
+        # Use primary_channel_id to avoid RelatedObjectDoesNotExist
+        if obj.group and not obj.primary_channel_id:
+            # Get primary channel from group
+            obj.primary_channel = obj.group.primary_channel
+        super().save_model(request, obj, form, change)
 
     def status_display(self, obj):
         colors = {

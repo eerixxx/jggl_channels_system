@@ -1,0 +1,18 @@
+/* 
+ * Скрываем встроенный переключатель тем Django,
+ * так как он несовместим с django-admin-interface
+ */
+
+/* Скрываем кнопку Toggle theme */
+#toggle-theme-btn,
+.theme-toggle,
+button[title="Toggle theme"],
+a[title="Toggle theme"] {
+    display: none !important;
+}
+
+/* Убираем влияние data-theme атрибута на стили */
+html[data-theme] {
+    color-scheme: light !important;
+}
+

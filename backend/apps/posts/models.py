@@ -135,33 +135,41 @@ class MultiChannelPost(TimestampedModel):
         """
         Create ChannelPost records for all channels in the group.
         Called after the MultiChannelPost is created.
+        
+        All channels get the primary text/photo initially.
+        Non-primary channels can be translated later if auto_translate is enabled.
         """
         channels = self.group.channels.filter(is_active=True).select_related("language")
 
         for channel in channels:
             is_primary = channel.pk == self.primary_channel_id
 
+            # Determine source type
+            if is_primary:
+                source_type = SourceType.PRIMARY
+            elif self.auto_translate_enabled:
+                source_type = SourceType.AUTO_TRANSLATED
+            else:
+                source_type = SourceType.MANUAL
+
+            # Determine initial status
+            if is_primary:
+                status = ChannelPostStatus.DRAFT
+            elif self.auto_translate_enabled:
+                status = ChannelPostStatus.PENDING_TRANSLATION
+            else:
+                status = ChannelPostStatus.DRAFT
+
             ChannelPost.objects.get_or_create(
                 multi_post=self,
                 channel=channel,
                 defaults={
                     "language": channel.language,
-                    "source_type": SourceType.PRIMARY
-                    if is_primary
-                    else (
-                        SourceType.AUTO_TRANSLATED
-                        if self.auto_translate_enabled
-                        else SourceType.MANUAL
-                    ),
-                    "text_markdown": self.primary_text_markdown if is_primary else "",
-                    "photo": self.primary_photo if is_primary else None,
-                    "status": ChannelPostStatus.DRAFT
-                    if is_primary
-                    else (
-                        ChannelPostStatus.PENDING_TRANSLATION
-                        if self.auto_translate_enabled
-                        else ChannelPostStatus.DRAFT
-                    ),
+                    "source_type": source_type,
+                    # Copy primary content to all channels
+                    "text_markdown": self.primary_text_markdown,
+                    "photo": self.primary_photo,
+                    "status": status,
                 },
             )
 

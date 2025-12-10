@@ -34,6 +34,8 @@ db.sqlite3-journal
 /media
 /staticfiles
 /static
+# Allow backend/static/ (admin customizations)
+!backend/static/
 
 # IDE
 .vscode/

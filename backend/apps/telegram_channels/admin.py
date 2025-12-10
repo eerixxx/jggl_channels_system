@@ -22,11 +22,18 @@ class LanguageAdmin(admin.ModelAdmin):
 
 
 class ChannelInline(admin.TabularInline):
-    """Inline for channels within a group."""
+    """Inline for channels within a group.
+    
+    Note: Channels should be created via 'add_channel' command or Channel Admin,
+    not through this inline. This inline only shows existing channels in the group.
+    """
 
     model = Channel
-    extra = 0
+    extra = 0  # Don't show extra empty forms
+    max_num = 0  # Don't allow adding new channels via inline
+    can_delete = False  # Use Channel Admin to manage channels
     fields = [
+        "telegram_chat_id",
         "title",
         "username",
         "language",
@@ -35,9 +42,12 @@ class ChannelInline(admin.TabularInline):
         "bot_can_post",
         "member_count",
     ]
-    readonly_fields = ["member_count"]
+    readonly_fields = ["telegram_chat_id", "title", "username", "member_count", "bot_can_post"]
     show_change_link = True
     ordering = ["language__name"]
+    
+    verbose_name = "Channel in Group"
+    verbose_name_plural = "Channels in Group (read-only, use Channel Admin to add/edit)"
 
 
 @admin.register(ChannelGroup)
@@ -53,9 +63,13 @@ class ChannelGroupAdmin(admin.ModelAdmin):
         "created_at",
     ]
     list_filter = ["is_active", "created_at"]
-    search_fields = ["name", "description"]
+    search_fields = ["name", "description"]  # Required for autocomplete in other admins
     ordering = ["name"]
     inlines = [ChannelInline]
+    
+    # Allow this model to be used in autocomplete fields
+    class Media:
+        pass
 
     fieldsets = (
         (None, {"fields": ("name", "description")}),

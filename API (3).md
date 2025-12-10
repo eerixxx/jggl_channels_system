@@ -1021,6 +1021,208 @@ async def handle_bot_event(
 
 ---
 
+## Детальная статистика (MTProto API)
+
+MTProto API предоставляет детальную статистику, недоступную через Bot API:
+- Точное количество просмотров
+- Детализация реакций (с указанием emoji)
+- Количество комментариев
+- Статистика роста канала
+
+### Настройка MTProto
+
+1. Получите API credentials на https://my.telegram.org
+2. Сгенерируйте session string:
+
+```bash
+python scripts/generate_session.py
+```
+
+3. Добавьте в `.env`:
+
+```bash
+MTPROTO_ENABLED=true
+TELEGRAM_API_ID=12345678
+TELEGRAM_API_HASH=your_api_hash
+TELEGRAM_SESSION_STRING=your_session_string
+```
+
+### GET /api/v1/stats/status
+
+Проверка статуса MTProto API.
+
+#### Успешный ответ (200 OK)
+
+```json
+{
+  "enabled": true,
+  "available": true,
+  "connected": true,
+  "has_api_id": true,
+  "has_api_hash": true,
+  "has_session": true
+}
+```
+
+### GET /api/v1/stats/channel/{chat_id}
+
+Детальная статистика канала.
+
+#### Успешный ответ (200 OK)
+
+```json
+{
+  "success": true,
+  "channel": {
+    "chat_id": -1001234567890,
+    "title": "My Channel",
+    "username": "my_channel",
+    "participants_count": 15000,
+    "admins_count": 5,
+    "online_count": 1200,
+    "about": "Channel description",
+    "is_verified": false,
+    "is_megagroup": false,
+    "is_broadcast": true,
+    "can_view_stats": true
+  },
+  "growth_stats": {
+    "period": {
+      "min_date": "2024-01-01T00:00:00",
+      "max_date": "2024-01-15T00:00:00"
+    },
+    "followers": {
+      "current": 15000,
+      "previous": 14500
+    },
+    "views_per_post": {
+      "current": 5000,
+      "previous": 4800
+    }
+  }
+}
+```
+
+### GET /api/v1/stats/message/{chat_id}/{message_id}
+
+Детальная статистика сообщения.
+
+#### Успешный ответ (200 OK)
+
+```json
+{
+  "success": true,
+  "chat_id": -1001234567890,
+  "message_id": 123,
+  "views": 5000,
+  "forwards": 150,
+  "replies": 45,
+  "reactions": {
+    "total_count": 320,
+    "reactions": [
+      {"emoji": "👍", "count": 200},
+      {"emoji": "❤️", "count": 80},
+      {"emoji": "🔥", "count": 40}
+    ]
+  },
+  "date": "2024-01-15T10:30:00Z",
+  "pinned": false
+}
+```
+
+### POST /api/v1/stats/messages/{chat_id}/batch
+
+Статистика нескольких сообщений за один запрос.
+
+#### Тело запроса
+
+```json
+[123, 124, 125, 126, 127]
+```
+
+#### Успешный ответ (200 OK)
+
+```json
+{
+  "success": true,
+  "chat_id": -1001234567890,
+  "count": 5,
+  "messages": [
+    {
+      "message_id": 123,
+      "views": 5000,
+      "forwards": 150,
+      "replies": 45,
+      "reactions": {"total_count": 320, "reactions": [...]}
+    },
+    ...
+  ]
+}
+```
+
+### GET /api/v1/stats/posts/{chat_id}/recent
+
+Статистика последних постов в канале.
+
+#### Query параметры
+
+| Параметр | Тип | Обязательный | Описание |
+|----------|-----|--------------|----------|
+| `limit` | `int` | Нет | Количество постов (1-100). По умолчанию: 50 |
+| `before` | `datetime` | Нет | Получить посты до этой даты |
+
+#### Успешный ответ (200 OK)
+
+```json
+{
+  "success": true,
+  "chat_id": -1001234567890,
+  "count": 50,
+  "totals": {
+    "views": 250000,
+    "forwards": 5000,
+    "reactions": 15000,
+    "replies": 2000
+  },
+  "average": {
+    "views": 5000,
+    "forwards": 100,
+    "reactions": 300,
+    "replies": 40
+  },
+  "posts": [
+    {
+      "message_id": 123,
+      "text": "Текст поста...",
+      "has_media": true,
+      "views": 5000,
+      "forwards": 150,
+      "replies": 45,
+      "reactions_count": 320,
+      "date": "2024-01-15T10:30:00Z",
+      "pinned": false
+    },
+    ...
+  ]
+}
+```
+
+### POST /api/v1/stats/connect
+
+Подключение MTProto клиента.
+
+#### Успешный ответ (200 OK)
+
+```json
+{
+  "success": true,
+  "connected": true,
+  "message": "MTProto client connected successfully"
+}
+```
+
+---
+
 ## Переменные окружения
 
 | Переменная | Обязательная | Описание | По умолчанию |
@@ -1045,3 +1247,7 @@ async def handle_bot_event(
 | `TELEGRAM_WEBHOOK_ENABLED` | Нет | Включить режим webhook | `false` |
 | `TELEGRAM_WEBHOOK_URL` | Нет | Публичный URL для webhook | — |
 | `TELEGRAM_WEBHOOK_SECRET` | Нет | Секретный токен для валидации webhook | — |
+| `MTPROTO_ENABLED` | Нет | Включить MTProto API | `false` |
+| `TELEGRAM_API_ID` | Нет | API ID с my.telegram.org | — |
+| `TELEGRAM_API_HASH` | Нет | API Hash с my.telegram.org | — |
+| `TELEGRAM_SESSION_STRING` | Нет | Session string для Telethon | — |
